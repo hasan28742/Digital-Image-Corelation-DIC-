@@ -1,0 +1,234 @@
+clc
+clearvars
+
+%collection date for verification
+images= load('rotation_data.mat')
+%imshow(ref)
+%imshow(cur)
+R=images.ref;
+C=images.ref;
+ 
+%%%%%%%%%%%Step 2: create grid%%%%%%%%%%
+
+%%%%delete/supress this for no exclusion-start%%%%%%%%%
+figure;
+imshow(R);
+title('Select the region to be excluded in the grid');
+
+%create a mask to exclude the undeformed region
+mask_for_exclude = false(size(R, 1), size(R, 2));
+
+% Loop for interactive selection, replace N with the number of regions to exclude
+%total 3 or 4 or 5 regeion will be excluded
+for i = 1:2% the second value might be equal to number of excluded area
+    h = drawfreehand('Label', ['Region ' num2str(i)]); % it will be free hand drawing
+    wait(h); % hold until all selection is completed
+    mask = createMask(h); % Create a mask from the selection
+    mask_for_exclude = mask_for_exclude | mask; % Combine the current mask with the previous masks
+end
+
+%ROI=region of interest
+ROI= ~mask_for_exclude;%delete/supress this during no exclusion
+
+%showing region of interest
+figure;
+imshow(R); 
+hold on; 
+h = imshow(~ROI);  % Assuming false in roiMask means exclusion
+set(h, 'AlphaData', 0.3);  % Making the mask semi-transparent
+title('Excluded and ROI on reference image');
+%%%%%%%%%%delete/supress this for no exclusion-end%%%%%%%%
+
+%low grid_spacing give more accurate results but increase computational cost
+grid_spaceing=30; %two grid points distance
+[rows,columns] = size(R);
+[xGrid, yGrid] = meshgrid(1:grid_spaceing:columns, 1:grid_spaceing:rows);
+
+%%%%%%%%%%%%%%%%%%%Step 3: looping%%%%%%%%%%%%%%%%%
+
+figure('Name','Reference Image Grid','NumberTitle','off');
+ax = axes; % Create axes in the figure
+imshow(R, 'Parent', ax); % Display the image in these axes
+
+figure('Name','Moved subset in deformed image','NumberTitle','off');
+ay = axes; % Create axes in the figure
+imshow(C, 'Parent', ay); % Display the image in these axes
+
+
+w=10; % Width-horizontal length-cartesian x
+h=10; %height-vertical lenght-cartesian y
+
+R_template_size=[w,h];
+
+x_displacement = zeros(size(xGrid));
+y_displacement = zeros(size(yGrid));
+final_displacement =zeros(size(xGrid));
+
+% Iterate through the grid points
+%xGrid and y%Grid have the same dimension
+for i = 1:size(xGrid, 1)
+    for j = 1:size(xGrid, 2)
+        %if ROI(i, j)  % If the grid point is within the ROI
+        %if ~mask_for_exclude(round(yGrid(i)), round(xGrid(i)))  
+        %if ROI(round(yGrid(i)), round(xGrid(j)))-ok
+        %if ROI((yGrid(i)), (xGrid(j)))
+            x=xGrid(i,j);%
+            y=yGrid(i,j);%
+
+            % Define the template from the undeformed image
+            xMin = max(1, x - R_template_size(1)/2);
+            xMax = min(columns, x + R_template_size(1)/2 -1);
+            yMin = max(1, y - R_template_size(2)/2);
+            yMax = min(rows, y + R_template_size(2)/2-1);
+          % Ensure the entire template is within the ROI    
+         if all(ROI(yMin:yMax, xMin:xMax), 'all')  % This line would be deleted/supress during no exclusion
+             R_template = R(yMin:yMax, xMin:xMax);
+             % Proceed with cross-correlation
+          
+            %R_template = R(yMin:yMax, xMin:xMax);
+ 
+            % Perform cross-correlation and find the peak(c) in each iteration
+            c = normxcorr2(R_template, C);
+            [ypeak, xpeak] = find(c==max(c(:))); 
+
+            %subset were defined from middle position so as the yoffset
+            yoffSet = ypeak-(size(R_template,1)/2)+1;  
+            xoffSet = xpeak-(size(R_template,2)/2)+1;  
+             
+            % Calculate the displacement
+            x_displacement(i, j) = xoffSet - x;
+            y_displacement(i, j) = yoffSet - y;
+
+            final_displacement(i,j) =sqrt(x_displacement(i,j).^2 +y_displacement(i,j).^2);
+           
+            %plotting subset in the terminal
+          
+            %plot of grid of R
+            rectangle(ax, 'Position', [x, y, size(R_template,2), size(R_template,1)], 'EdgeColor', 'g','LineWidth', .5);
+
+            %plot of deformed grid position on c 
+            rectangle(ay, 'Position', [xoffSet, yoffSet, size(R_template,2), size(R_template,1)], 'EdgeColor', 'r','LineWidth', .5);
+   
+            %plot of grid and deformed in current coordinate
+            rectangle(ay, 'Position', [x, y, size(R_template,2), size(R_template,1)], 'EdgeColor', 'g','LineWidth', 1);
+
+          
+        end%% This line would be deleted/supress during no exclusion
+    end
+end
+
+%%%%%%%%%%%%%%%%%Step4: displacement plotting%%%%%%%%%%%%
+
+
+if ~all(y_displacement == y_displacement(1)) 
+     % if all data of the y_displacement is like first data 
+     % i.e no displacement - no graph.No error during valiadation process
+     % with same image, translation, rotati
+     figure('Name','ydisplacement contour plot','NumberTitle','off');
+     contourf(xGrid, yGrid, y_displacement, 'LineColor', 'r');
+     colorbar; % Adds a color bar to indicate the displacement values
+     title('Y Displacement Contour Plot');
+     xlabel('X-pixel');
+     ylabel('Y -pixel');
+    axis equal; % original size
+    set(gca, 'YDir', 'reverse'); %reversing y direction
+    hold on; % Retain the contour plot
+    plot(xGrid, yGrid, 'g+', 'MarkerSize', .5, 'LineWidth', .5); % green plus is the R_sub centre in C
+    hold off; % Release the hold to prevent further additions
+else
+    % y_displacement is constant, 
+    disp('y displacement is constant: Contour plot not generated.');
+end
+%{
+figure('Name','xdisplacement contour plot','NumberTitle','off');
+contourf(xGrid, yGrid, x_displacement, 'LineColor', 'r');
+colorbar; % Adds a color bar to indicate the displacement values
+title('X Displacement Contour Plot');
+xlabel('X-pixel');
+ylabel('Y -pixel');
+axis equal; % original size
+set(gca, 'YDir', 'reverse'); %reversing y direction
+hold on; % Retain the contour plot
+plot(xGrid, yGrid, 'g+', 'MarkerSize', .5, 'LineWidth', .5); % green plus is the R_sub centre in C
+hold off; % Release the hold to prevent further additions
+
+%%%%%%%%%%%%%%%%%Step5: displacement Gradient%%%%%%%%%%%%
+%Spatial Gradient of displacement field
+[dx_dx, dx_dy]=gradient(x_displacement,grid_spaceing,grid_spaceing);%here grid_spaceing the spacing in x and y direction
+[dy_dx, dy_dy]=gradient(y_displacement,grid_spaceing,grid_spaceing);%It might be changle
+
+%initial 2*2 zeros matrix to hold deformation gradient(F)of each point
+[a,b]=size(xGrid);
+F=zeros(2,2,a,b);
+for m=1:size(xGrid,1)
+    for n=1:size(xGrid,2)
+        F(:,:,a,b)= [dx_dx(i,j), dx_dy(i,j);
+                 dy_dx(i,j), dy_dy(i,j)];
+    end
+
+end
+
+
+%%%%%%%%%%%%%%%%Step 6: Jacobian Matrix%%%%%%%%%%%%%%%
+
+J=dx_dx.*dy_dy- dx_dy.*dy_dx;
+
+%%%%%%%%%%%%%%%%Step 8: plotting overall displacement%%%%%%%%%%%%
+
+figure('Name','Final displacement plot','NumberTitle','off');
+contourf(xGrid, yGrid, final_displacement, 'LineColor', 'r');
+colorbar; % Adds a color bar to indicate the displacement values
+title('Final overall displacement Contour Plot');
+xlabel('X-pixel');
+ylabel('Y -pixel');
+axis equal; % original size
+set(gca, 'YDir', 'reverse'); %reversing y direction
+hold on; % Retain the contour plot
+plot(xGrid, yGrid, 'g+', 'MarkerSize', .5, 'LineWidth', .5); % green plus is the R_sub centre in C
+hold off; % Release the hold to prevent further additions
+
+%%%%%%%%%%%%%%step9: strain measurement %%%%%%%%%%%%%
+
+%let consider lagrange Strain(Exx,Eyy,Exy)
+
+Exx=dx_dx+ 0.5*(dx_dx.^2+dy_dy.^2);
+Eyy = dy_dy + 0.5*(dx_dy.^2 + dy_dy.^2);
+E_xy = 0.5*(dx_dy + dy_dx) + 0.5*(dx_dx.*dx_dy + dy_dx.*dy_dy);
+
+figure('Name','Exx Lagrange strain','NumberTitle','off');
+contourf(xGrid, yGrid, Exx, 'LineColor', 'r');
+colorbar; % Adds a color bar to indicate the displacement values
+title('Exx Lagrange strain');
+xlabel('X-pixel');
+ylabel('Y -pixel');
+axis equal; % original size
+set(gca, 'YDir', 'reverse'); %reversing y direction
+hold on; % Retain the contour plot
+plot(xGrid, yGrid, 'g+', 'MarkerSize', .5, 'LineWidth', .5); % green plus is the R_sub centre in C
+hold off; % Release the hold to prevent further additions
+
+figure('Name','Eyy Lagrange strain','NumberTitle','off');
+contourf(xGrid, yGrid, Eyy, 'LineColor', 'r');
+colorbar; % Adds a color bar to indicate the displacement values
+title('Eyy Lagrange strain');
+xlabel('X-pixel');
+ylabel('Y -pixel');
+axis equal; % original size
+set(gca, 'YDir', 'reverse'); %reversing y direction
+hold on; % Retain the contour plot
+plot(xGrid, yGrid, 'g+', 'MarkerSize', .5, 'LineWidth', .5); % green plus is the R_sub centre in C
+hold off; % Release the hold to prevent further additions
+
+figure('Name','Exy Lagrange strain','NumberTitle','off');
+contourf(xGrid, yGrid, Exy, 'LineColor', 'r');
+colorbar; % Adds a color bar to indicate the displacement values
+title('Exy Lagrange strain');
+xlabel('X-pixel');
+ylabel('Y -pixel');
+axis equal; % original size
+set(gca, 'YDir', 'reverse'); %reversing y direction
+hold on; % Retain the contour plot
+plot(xGrid, yGrid, 'g+', 'MarkerSize', .5, 'LineWidth', .5); % green plus is the R_sub centre in C
+hold off; % Release the hold to prevent further additions
+
+%}
